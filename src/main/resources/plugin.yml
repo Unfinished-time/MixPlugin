@@ -1,0 +1,38 @@
+name: MixPlugin
+version: 1.4.1
+main: org.unfinishedtime.mixPlugin.MixPlugin
+api-version: "1.21"
+authors: ["Zatursure"]
+description: "提供死亡返回、传送和封禁功能"
+
+commands:
+  mp:
+    description: "主命令"
+    usage: "/mp <back|tpa|ban|unban|bans>"
+    aliases: [mixplugin]
+
+permissions:
+  mixplugin.back:
+    description: "允许使用返回死亡点功能"
+    default: true
+  mixplugin.tpa:
+    description: "允许发送传送请求"
+    default: true
+  mixplugin.tpa.accept:
+    description: "允许接受传送请求"
+    default: true
+  mixplugin.tpa.deny:
+    description: "允许拒绝传送请求"
+    default: true
+  mixplugin.ban:
+    description: "允许封禁玩家"
+    default: op
+  mixplugin.unban:
+    description: "允许解封玩家"
+    default: op
+  mixplugin.bans:
+    description: "允许查看封禁列表"
+    default: op
+  mixplugin.admin:
+    description: "所有管理权限"
+    default: op
