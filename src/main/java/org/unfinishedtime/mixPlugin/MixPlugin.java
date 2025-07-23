@@ -230,11 +230,10 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
     }
 
     private boolean handleBanCommand(CommandSender sender, String[] args) {
-        if (args.length < 2) {
-            sendMessage(sender, "§c用法: /mp ban <玩家名> [天数] [原因]");
+        if (args.length < 3) {
+            sendMessage(sender, "§c用法: /mp ban <玩家名> <天数(0=永久)> <原因>");
             sendMessage(sender, "§7示例: /mp ban Player1 7 使用外挂");
-            sendMessage(sender, "§7示例: /mp ban Player1 使用外挂");
-            sendMessage(sender, "§7示例: /mp ban Player1");
+            sendMessage(sender, "§7示例: /mp ban Player1 0 使用外挂");
             return true;
         }
 
@@ -244,25 +243,21 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
             return true;
         }
 
-        int days = 1;
-        String reason = "违反服务器规则";
-        int reasonStartIndex = 2;
-
-        if (args.length >= 3) {
-            try {
-                days = Integer.parseInt(args[2]);
-                reasonStartIndex = 3;
-            } catch (NumberFormatException e) {
-                reasonStartIndex = 2;
-            }
+        int days;
+        try {
+            days = Integer.parseInt(args[2]);
+        } catch (NumberFormatException e) {
+            sendMessage(sender, "§c天数必须是数字！");
+            return true;
         }
 
-        if (args.length > reasonStartIndex) {
-            reason = String.join(" ", Arrays.copyOfRange(args, reasonStartIndex, args.length));
+        if (args.length < 4) {
+            sendMessage(sender, "§c请提供封禁原因！");
+            return true;
         }
 
+        String reason = String.join(" ", Arrays.copyOfRange(args, 3, args.length));
         long until = days > 0 ? System.currentTimeMillis() + (days * 86_400_000L) : 0;
-
         String path = "bans." + target.getUniqueId();
         bansConfig.set(path + ".reason", reason);
         bansConfig.set(path + ".operator", sender.getName());
@@ -382,7 +377,7 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
         sender.sendMessage(PLUGIN_PREFIX + "§e/mp tpa <玩家> §7- 请求传送");
         sender.sendMessage(PLUGIN_PREFIX + "§e/mp tpa accept §7- 接受传送请求");
         sender.sendMessage(PLUGIN_PREFIX + "§e/mp tpa deny §7- 拒绝传送请求");
-        sender.sendMessage(PLUGIN_PREFIX + "§e/mp ban <玩家> [天数] [原因] §7- 封禁玩家");
+        sender.sendMessage(PLUGIN_PREFIX + "§e/mp ban <玩家> <天数(0=永久)> <原因> §7- 封禁玩家");
         sender.sendMessage(PLUGIN_PREFIX + "§e/mp unban <玩家> §7- 解封玩家");
         sender.sendMessage(PLUGIN_PREFIX + "§e/mp bans §7- 查看封禁列表");
         sender.sendMessage(PLUGIN_PREFIX + "§m━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -449,20 +444,14 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
                 }
             } else if (args.length == 3) {
                 if (args[0].equalsIgnoreCase("ban") && hasPermission(sender, PERM_BAN)) {
-                    if ("7".startsWith(args[2])) {
-                        completions.add("7");
-                    }
-                    if ("30".startsWith(args[2])) {
-                        completions.add("30");
-                    }
-                    if ("永久".startsWith(args[2])) {
-                        completions.add("永久");
-                    }
+                    completions.add("0"); // 永久封禁
+                    completions.add("7"); // 7天
+                    completions.add("30"); // 30天
                 } else if (args[0].equalsIgnoreCase("tpa") && args[1].equalsIgnoreCase("accept") &&
                         hasPermission(sender, PERM_TPA_ACCEPT)) {
                     // 可添加特殊补全
                 }
-            } else if (args.length >= 3 && args[0].equalsIgnoreCase("ban") && hasPermission(sender, PERM_BAN)) {
+            } else if (args.length == 4 && args[0].equalsIgnoreCase("ban") && hasPermission(sender, PERM_BAN)) {
                 completions.add("<原因>");
             }
         }
