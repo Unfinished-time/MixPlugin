@@ -1,8 +1,25 @@
+/*
+ * MixPlugin - A simple Minecraft plugin
+ * Copyright (c) 2025 Unfinished-time
+ *
+ * Licensed under the MIT License (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://opensource.org/licenses/MIT
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.unfinishedtime.mixPlugin;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
@@ -13,6 +30,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
@@ -22,8 +40,8 @@ import java.util.*;
 
 public final class MixPlugin extends JavaPlugin implements Listener, TabCompleter {
 
-    // 权限节点
     private static final String PERMISSION_PREFIX = "mixplugin.";
+    public static final String PERM_USE = PERMISSION_PREFIX + "use";
     public static final String PERM_BACK = PERMISSION_PREFIX + "back";
     public static final String PERM_TPA = PERMISSION_PREFIX + "tpa";
     public static final String PERM_TPA_ACCEPT = PERMISSION_PREFIX + "tpa.accept";
@@ -31,33 +49,61 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
     public static final String PERM_BAN = PERMISSION_PREFIX + "ban";
     public static final String PERM_UNBAN = PERMISSION_PREFIX + "unban";
     public static final String PERM_BANS = PERMISSION_PREFIX + "bans";
+    public static final String PERM_SPAWN = PERMISSION_PREFIX + "spawn";
+    public static final String PERM_SET_FIRST_SPAWN = PERMISSION_PREFIX + "setfirstspawn";
+    public static final String PERM_SET_WORLD_SPAWN = PERMISSION_PREFIX + "setworldspawn";
+
     private static final String PLUGIN_PREFIX = "§8[§6MixPlugin§8] ";
-    private static final long REQUEST_TIMEOUT = 120_000; // 2分钟超时
+    private static final long REQUEST_TIMEOUT = 120_000;
     private final Map<UUID, Location> deathLocations = new HashMap<>();
     private final Map<UUID, UUID> teleportRequests = new HashMap<>();
     private final Map<UUID, Long> requestTimestamps = new HashMap<>();
     private File bansFile;
     private FileConfiguration bansConfig;
+    private File spawnFile;
+    private FileConfiguration spawnConfig;
 
     @Override
     public void onEnable() {
         setupConfigs();
-        getLogger().info("插件已加载 v1.5.1");
+        getLogger().info("MixPlugin loaded v1.6.0");
         getServer().getPluginManager().registerEvents(this, this);
         Objects.requireNonNull(this.getCommand("mp")).setTabCompleter(this);
     }
+
     private void setupConfigs() {
-        if (!getDataFolder().exists() && !getDataFolder().mkdirs()) getLogger().warning("无法创建插件目录");
+        if (!getDataFolder().exists() && !getDataFolder().mkdirs()) {
+            getLogger().warning("Failed to create plugin directory");
+            return;
+        }
+
         bansFile = new File(getDataFolder(), "bans.yml");
         if (!bansFile.exists()) {
             try {
-                if (!bansFile.createNewFile()) getLogger().warning("无法创建 bans.yml");
+                if (!bansFile.createNewFile()) getLogger().warning("Failed to create bans.yml");
             } catch (IOException e) {
-                getLogger().severe("无法创建 bans.yml: " + e.getMessage());
+                getLogger().severe("Failed to create bans.yml: " + e.getMessage());
             }
         }
         bansConfig = YamlConfiguration.loadConfiguration(bansFile);
+
+        spawnFile = new File(getDataFolder(), "spawn.yml");
+        if (!spawnFile.exists()) {
+            try {
+                if (!spawnFile.createNewFile()) getLogger().warning("Failed to create spawn.yml");
+                else {
+                    spawnConfig = YamlConfiguration.loadConfiguration(spawnFile);
+                    spawnConfig.createSection("first-spawn");
+                    spawnConfig.createSection("world-spawns");
+                    spawnConfig.save(spawnFile);
+                }
+            } catch (IOException e) {
+                getLogger().severe("Failed to create spawn.yml: " + e.getMessage());
+            }
+        }
+        spawnConfig = YamlConfiguration.loadConfiguration(spawnFile);
     }
+
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getEntity();
@@ -89,6 +135,27 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
         }
     }
 
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+
+        if (!player.hasPlayedBefore() && spawnConfig.contains("first-spawn")) {
+            Map<String, Object> serialized = (Map<String, Object>) spawnConfig.get("first-spawn");
+            World world = Bukkit.getWorld((String) serialized.get("world"));
+            if (world != null) {
+                Location spawn = new Location(
+                        world,
+                        (double) serialized.get("x"),
+                        (double) serialized.get("y"),
+                        (double) serialized.get("z"),
+                        ((Double) serialized.get("yaw")).floatValue(),
+                        ((Double) serialized.get("pitch")).floatValue()
+                );
+                player.teleport(spawn);
+            }
+        }
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         if (!cmd.getName().equalsIgnoreCase("mp")) return false;
@@ -96,34 +163,36 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
             showHelp(sender);
             return true;
         }
+
+        if (!hasPermission(sender, PERM_USE)) {
+            sendMessage(sender, "§c你没有权限使用此命令！");
+            return true;
+        }
+
         return switch (args[0].toLowerCase()) {
             case "back" -> handleBackCommand(sender);
             case "tpa" -> handleTpaCommand(sender, args);
             case "ban" -> handleBanCommand(sender, args);
             case "unban" -> handleUnbanCommand(sender, args);
             case "bans" -> showBanList(sender);
+            case "spawn" -> handleSpawnCommand(sender);
+            case "setfirstspawn" -> handleSetFirstSpawnCommand(sender);
+            case "setworldspawn" -> handleSetWorldSpawnCommand(sender);
             default -> {
                 sendMessage(sender, "§c未知命令，输入 /mp 查看帮助");
                 yield true;
             }
         };
     }
-    private String formatTimeLeft(long until) {
-        long left = (until - System.currentTimeMillis()) / 1000;
-        long days = left / 86_400;
-        long hours = (left % 86_400) / 3_600;
-        return String.format("%d天%d小时", days, hours);
-    }
-    private void saveBansConfig() {
-        try {
-            bansConfig.save(bansFile);
-        } catch (IOException e) {
-            getLogger().severe("无法保存封禁数据: " + e.getMessage());
-        }
-    }
+
     private boolean handleBackCommand(CommandSender sender) {
         if (!(sender instanceof Player player)) {
             sendMessage(sender, "只有玩家才能使用这个命令！");
+            return true;
+        }
+
+        if (!hasPermission(sender, PERM_BACK)) {
+            sendMessage(sender, "§c你没有使用此命令的权限！");
             return true;
         }
 
@@ -144,6 +213,7 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
         deathLocations.remove(player.getUniqueId());
         return true;
     }
+
     private boolean handleTpaCommand(CommandSender sender, String[] args) {
         if (!(sender instanceof Player player)) {
             sendMessage(sender, "只有玩家才能使用这个命令！");
@@ -170,7 +240,7 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
         }
 
         if (sender.equals(target)) {
-            sendMessage(sender, "你不能传送给自己！");
+            sendMessage(sender, "你不能请求自己！");
             return true;
         }
 
@@ -336,6 +406,78 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
         return true;
     }
 
+    private boolean handleSpawnCommand(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sendMessage(sender, "只有玩家才能使用这个命令！");
+            return true;
+        }
+
+        if (!hasPermission(sender, PERM_SPAWN)) {
+            sendMessage(sender, "§c你没有使用此命令的权限！");
+            return true;
+        }
+
+        String worldName = player.getWorld().getName();
+        if (spawnConfig.contains("world-spawns." + worldName)) {
+            Map<String, Object> serialized = (Map<String, Object>) spawnConfig.get("world-spawns." + worldName);
+            World world = Bukkit.getWorld((String) serialized.get("world"));
+            if (world != null) {
+                Location spawn = new Location(
+                        world,
+                        (double) serialized.get("x"),
+                        (double) serialized.get("y"),
+                        (double) serialized.get("z"),
+                        ((Double) serialized.get("yaw")).floatValue(),
+                        ((Double) serialized.get("pitch")).floatValue()
+                );
+                player.teleport(spawn);
+                sendMessage(player, "已传送至当前世界重生点");
+                return true;
+            }
+        }
+
+        Location spawnLoc = player.getWorld().getSpawnLocation();
+        player.teleport(spawnLoc);
+        sendMessage(player, "已传送至当前世界默认重生点");
+        return true;
+    }
+
+    private boolean handleSetFirstSpawnCommand(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sendMessage(sender, "只有玩家才能使用这个命令！");
+            return true;
+        }
+
+        if (!hasPermission(sender, PERM_SET_FIRST_SPAWN)) {
+            sendMessage(sender, "§c你没有使用此命令的权限！");
+            return true;
+        }
+
+        spawnConfig.set("first-spawn", serializeLocation(player.getLocation()));
+        saveSpawnConfig();
+        sendMessage(player, "已设置服务器首次加入位置");
+        return true;
+    }
+
+    private boolean handleSetWorldSpawnCommand(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sendMessage(sender, "只有玩家才能使用这个命令！");
+            return true;
+        }
+
+        if (!hasPermission(sender, PERM_SET_WORLD_SPAWN)) {
+            sendMessage(sender, "§c你没有使用此命令的权限！");
+            return true;
+        }
+
+        String worldName = player.getWorld().getName();
+        spawnConfig.set("world-spawns." + worldName, serializeLocation(player.getLocation()));
+        saveSpawnConfig();
+        player.getWorld().setSpawnLocation(player.getLocation());
+        sendMessage(player, "已设置当前世界重生点");
+        return true;
+    }
+
     private UUID findBannedPlayer(String input) {
         ConfigurationSection bansSection = bansConfig.getConfigurationSection("bans");
         if (bansSection == null) return null;
@@ -366,6 +508,40 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
         requestTimestamps.remove(targetId);
     }
 
+    private String formatTimeLeft(long until) {
+        long left = (until - System.currentTimeMillis()) / 1000;
+        long days = left / 86_400;
+        long hours = (left % 86_400) / 3_600;
+        return String.format("%d天%d小时", days, hours);
+    }
+
+    private Map<String, Object> serializeLocation(Location location) {
+        Map<String, Object> serialized = new HashMap<>();
+        serialized.put("world", location.getWorld().getName());
+        serialized.put("x", location.getX());
+        serialized.put("y", location.getY());
+        serialized.put("z", location.getZ());
+        serialized.put("yaw", location.getYaw());
+        serialized.put("pitch", location.getPitch());
+        return serialized;
+    }
+
+    private void saveBansConfig() {
+        try {
+            bansConfig.save(bansFile);
+        } catch (IOException e) {
+            getLogger().severe("Failed to save ban data: " + e.getMessage());
+        }
+    }
+
+    private void saveSpawnConfig() {
+        try {
+            spawnConfig.save(spawnFile);
+        } catch (IOException e) {
+            getLogger().severe("Failed to save spawn data: " + e.getMessage());
+        }
+    }
+
     private void sendMessage(CommandSender sender, String message) {
         sender.sendMessage(PLUGIN_PREFIX + message);
     }
@@ -380,6 +556,9 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
         sender.sendMessage(PLUGIN_PREFIX + "§e/mp ban <玩家> <天数(0=永久)> <原因> §7- 封禁玩家");
         sender.sendMessage(PLUGIN_PREFIX + "§e/mp unban <玩家> §7- 解封玩家");
         sender.sendMessage(PLUGIN_PREFIX + "§e/mp bans §7- 查看封禁列表");
+        sender.sendMessage(PLUGIN_PREFIX + "§e/mp spawn §7- 回到当前世界重生点");
+        sender.sendMessage(PLUGIN_PREFIX + "§e/mp setfirstspawn §7- 设置首次加入位置");
+        sender.sendMessage(PLUGIN_PREFIX + "§e/mp setworldspawn §7- 设置当前世界重生点");
         sender.sendMessage(PLUGIN_PREFIX + "§m━━━━━━━━━━━━━━━━━━━━━━━━");
     }
 
@@ -389,7 +568,7 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
 
         if (cmd.getName().equalsIgnoreCase("mp")) {
             if (args.length == 1) {
-                completions.addAll(Arrays.asList("back", "tpa", "ban", "unban", "bans"));
+                completions.addAll(Arrays.asList("back", "tpa", "ban", "unban", "bans", "spawn", "setfirstspawn", "setworldspawn"));
 
                 completions.removeIf(s -> {
                     switch (s) {
@@ -398,6 +577,9 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
                         case "ban": return !hasPermission(sender, PERM_BAN);
                         case "unban": return !hasPermission(sender, PERM_UNBAN);
                         case "bans": return !hasPermission(sender, PERM_BANS);
+                        case "spawn": return !hasPermission(sender, PERM_SPAWN);
+                        case "setfirstspawn": return !hasPermission(sender, PERM_SET_FIRST_SPAWN);
+                        case "setworldspawn": return !hasPermission(sender, PERM_SET_WORLD_SPAWN);
                         default: return true;
                     }
                 });
@@ -405,13 +587,11 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
                 switch (args[0].toLowerCase()) {
                     case "tpa":
                         if (hasPermission(sender, PERM_TPA)) {
-                            // 玩家名补全
                             Bukkit.getOnlinePlayers().stream()
                                     .map(Player::getName)
                                     .filter(name -> name.toLowerCase().startsWith(args[1].toLowerCase()))
                                     .forEach(completions::add);
 
-                            // accept/deny补全
                             if ("accept".startsWith(args[1].toLowerCase())) {
                                 completions.add("accept");
                             }
@@ -444,12 +624,11 @@ public final class MixPlugin extends JavaPlugin implements Listener, TabComplete
                 }
             } else if (args.length == 3) {
                 if (args[0].equalsIgnoreCase("ban") && hasPermission(sender, PERM_BAN)) {
-                    completions.add("0"); // 永久封禁
-                    completions.add("7"); // 7天
-                    completions.add("30"); // 30天
+                    completions.add("0");
+                    completions.add("7");
+                    completions.add("30");
                 } else if (args[0].equalsIgnoreCase("tpa") && args[1].equalsIgnoreCase("accept") &&
                         hasPermission(sender, PERM_TPA_ACCEPT)) {
-                    // 可添加特殊补全
                 }
             } else if (args.length == 4 && args[0].equalsIgnoreCase("ban") && hasPermission(sender, PERM_BAN)) {
                 completions.add("<原因>");

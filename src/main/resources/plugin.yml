@@ -1,6 +1,7 @@
 name: MixPlugin
-version: 1.5.1
+version: 1.6.0
 main: org.unfinishedtime.mixPlugin.MixPlugin
+website: https://github.com/Unfinished-time/MixPlugin
 api-version: "1.21"
 authors:
   - Zatursure
@@ -9,7 +10,7 @@ description: "提供死亡返回、传送和封禁功能，支持自定义封禁
 commands:
   mp:
     description: "主命令"
-    usage: "/mp <back|tpa|ban|unban|bans>"
+    usage: "/mp <back|tpa|ban|unban|bans|spawn|setfirstspawn|setworldspawn>"
     aliases: [mixplugin]
     permission: mixplugin.use
     permission-message: "§c你没有权限使用此命令！"
@@ -38,4 +39,13 @@ permissions:
     default: op
   mixplugin.bans:
     description: "允许查看封禁列表"
+    default: op
+  mixplugin.spawn:
+    description: "允许传送到世界重生点"
+    default: true
+  mixplugin.setfirstspawn:
+    description: "允许设置首次加入重生点"
+    default: op
+  mixplugin.setworldspawn:
+    description: "允许设置世界重生点"
     default: op
